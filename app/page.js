@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { Intent } from '../lib/intent';
 import MicButton from '../components/MicButton';
 import WeatherCard from '../components/WeatherCard';
 import TemperatureCard from '../components/TemperatureCard';
@@ -22,16 +23,12 @@ export default function Home() {
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
-    // Route spoken keywords to the correct action
+    // Parse transcript into intent and execute the correct query
     recognition.onresult = (event) => {
       const spoken = event.results[0][0].transcript.toLowerCase();
       setTranscript(spoken);
-
-      if (spoken.includes('weather')) {
-        fetchWeather('full');
-      } else if (spoken.includes('temperature')) {
-        fetchWeather('temp');
-      }
+      const intent = new Intent(spoken);
+      executeQuery(intent);
     };
 
     recognition.onerror = (event) => {
@@ -44,10 +41,21 @@ export default function Home() {
     recognitionRef.current = recognition;
   }, []);
 
-  // Call our server-side route — API key is never exposed to the browser
-  async function fetchWeather(mode) {
+  // Single entry point for all queries — routes to correct API and card based on intent
+  async function executeQuery(intent) {
+    if (!intent.type) return;
+
+    // Determine which card to show
+    const mode = intent.type === 'weather' ? 'full' : 'temp';
     setCardMode(mode);
-    const res = await fetch('/api/weather');
+
+    // Use forecast endpoint for time-of-day queries, current weather otherwise
+    const endpoint =
+      intent.timeContext === 'now'
+        ? '/api/weather'
+        : `/api/forecast?time=${intent.timeContext}`;
+
+    const res = await fetch(endpoint);
     const data = await res.json();
     setWeatherData(data);
   }
@@ -71,7 +79,9 @@ export default function Home() {
     <main className="flex flex-col items-center justify-start min-h-screen px-4 py-20 gap-8">
       <div className="text-center">
         <h1 className="text-4xl font-bold text-white tracking-tight">Listen</h1>
-        <p className="text-gray-500 text-sm mt-2">Say "weather" or "temperature"</p>
+        <p className="text-gray-500 text-sm mt-2">
+          Say "weather" or "temperature" — add morning, afternoon, evening, or tonight
+        </p>
       </div>
 
       <MicButton isRecording={isRecording} onStart={handleStart} onStop={handleStop} />
@@ -81,7 +91,7 @@ export default function Home() {
         <p className="text-gray-400 text-sm italic">"{transcript}"</p>
       )}
 
-      {/* Render card based on which keyword was detected */}
+      {/* Render card based on detected intent */}
       {cardMode === 'full' && weatherData && <WeatherCard data={weatherData} />}
       {cardMode === 'temp' && weatherData && (
         <TemperatureCard temp={weatherData.main.temp} city={weatherData.name} />
